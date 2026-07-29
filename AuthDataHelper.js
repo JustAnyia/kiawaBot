@@ -10,6 +10,10 @@ export default class AuthDataHelper {
             twitch: {
                 access_token: "",
                 refresh_token: ""
+            },
+            youtube: {
+                access_token: "",
+                refresh_token: ""  
             }
         }
         this.statusCallback = null;
@@ -22,6 +26,10 @@ export default class AuthDataHelper {
             twitch: {
                 access_token: "",
                 refresh_token: ""
+            },
+            youtube: {
+                access_token: "",
+                refresh_token: ""  
             }
         }
         this.statusCallback = null;

@@ -22,8 +22,12 @@
           }
 
           .emote-big{
-                width: 3rem;
+                width: 4rem;
                 aspect-ratio: 1;
+          }
+
+          .emote-special{
+                width: 4rem;
           }
 
           #chat-messages{
@@ -108,9 +112,7 @@
           }
         }
         
-        // location.hostname will automatically point to the place where the server is located␍
-        //new ChatBotConnectionManager(`ws://${location.hostname}:8080`, event => {
-         new ChatBotConnectionManager(`ws://192.168.1.116:8080`, event => {
+        new ChatBotConnectionManager("ws://192.168.1.116:8080", event => {
           /** @type {({kiawaAction: string, [key: string]: any})} */
           const data = JSON.parse(event.data) ; // Parse the JSON string
           if (data.kiawaAction ==="Message_Delete"){
@@ -120,7 +122,7 @@
             handleModAction(data.modAction)
           }
           else if(data.kiawaAction==="Message"){
-          addMessage(data.tags, data.tags["display-name"],data.message, data.messageBadges)
+          addMessage(data.tags, data.channel, data.message, data.messageBadges)
           }
           else{
             console.log('unhandled kiawa Action')
@@ -168,7 +170,7 @@
           const chatMessages = document.getElementById('chat-messages');
           //pull the userid color
           let userColor=tags.color;
-          const messageID=tags.id;
+          const messageID=tags["message_id"];
           if (userColor===null){
             userColor='#bbbbbb'
           }
@@ -185,64 +187,51 @@
           })
           .join(""); // combine all the chat badges into one line of html
 
-          //Check for emotes
-          if (tags.emotes){
+          //run through the message fragments to build the chat message
+          const messageParts=[];
+          var messageFormatted="";
+          tags.message.fragments.forEach((fragment) =>{
+            
+            //if the header is an emote, this will pull the image and place it in the message to be displayed in the widget
+            if (fragment.type=== "emote") {
+              console.log('this is the emote section')
+              //create the url to the emote image to be displayed
+              const emoteURL=urlFront + fragment.emote.id + urlBack
+              //the part before the emote code
+              const emoteElement = document.createElement("img");
+              emoteElement.src=emoteURL;
 
-            //run through the emote object and pull out each emote as its own array entry
-            const emoteList=[];
-            for (const emote of Object.entries(tags.emotes)) {
+              //assign emote class for basic formatting
+              emoteElement.classList.add("emote")
 
-              for (let i=0;emote[1].length>i;i++) {
-                  const emoteURL=urlFront + emote[0] + urlBack
-                  let [startIndex,endIndex]=emote[1][i].split("-")
-                  startIndex=Number(startIndex)
-                  endIndex=Number(endIndex)+1
-                  emoteList.push({emoteURL,startIndex,endIndex})
+              //check if this was a big emote redeem, then assign the big emote class to enlarge
+              if (tags["message_type"]==="power_ups_gigantified_emote"){
+                  emoteElement.classList.add("emote-big")
               }
+              const emoteHTML = emoteElement.outerHTML;
+              messageParts.push(emoteHTML);
+              
             }
-            emoteList.sort(compareStartIndex);
-            //regex replace text with an img
-            const messageParts=[];
-                  for (const emoteImage of emoteList) {
-
-                    //the part before the emote code
-                    const emoteElement = document.createElement("img");
-                    emoteElement.src=`${emoteImage.emoteURL}`
-
-                    //assign emote class for basic formatting
-                    emoteElement.classList.add("emote")
-
-                    //check if this was a big emote redeem, then assign the big emote class to enlarge
-                    if (tags["msg-id"]==="gigantified-emote-message"){
-                        emoteElement.classList.add("emote-big")
-                    }
-                    const emoteHTML = emoteElement.outerHTML;
-
-                    //the part after the emote code
-                    let messageBack= message.slice(emoteImage.endIndex)
-                    messageBack=messageBack.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-                    messageParts.unshift(messageBack);
-                    messageParts.unshift(emoteHTML);
-
-                    message=message.slice(0, emoteImage.startIndex)
-                  }
-                  message=message.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-                  messageParts.unshift(message);
-                  message=messageParts.join("")
+            //if the fragment is text, this just appends it onto our overall message
+            if (fragment.type==="text") {
+              //sanitize inputs so people can't just put an image in
+              messageParts.push(fragment.text.replaceAll("<", "&lt;").replaceAll(">", "&gt;"));
+            }
           }
-
-          else {
-            message=message.replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-          }
-                    message = message.replace(/\bSoStylish\b/g, "<img class='emote' src= 'https://cdn.betterttv.net/frankerfacez_emote/81792/4'>");
+          )
+          messageFormatted = messageParts.join("")
+          messageFormatted = messageFormatted.replace(/\bSoStylish\b/g, "<img class='emote' src= 'https://cdn.betterttv.net/frankerfacez_emote/81792/4'>");
+          messageFormatted = messageFormatted.replace(/\bcrabMissile\b/g, "<img class='emote' src= 'https://cdn.betterttv.net/frankerfacez_emote/31554/4'>");
+          messageFormatted = messageFormatted.replace(/\bTitsAMe\b/g, "<img class='emote' src= 'https://cdn.betterttv.net/frankerfacez_emote/196494/4'>");
+          messageFormatted = messageFormatted.replace(/\bkiawaSilvia\b/g, "<img class='emote-special' src= 'emotes/kiawaSilvia.png'>");
           //make color html for username
           username=`<span style="color:${userColor}">${username}</span>`
           //push the chat message to the webpage
           const newMessage = document.createElement('div');
           newMessage.classList.add("chat-message")
           newMessage.setAttribute('messageID',messageID)
-          newMessage.setAttribute('userID',tags["user-id"])
-          newMessage.innerHTML = `${badgeIcons}${username}: ${message}`;
+          newMessage.setAttribute('userID',tags["chatter_user_id"])
+          newMessage.innerHTML = `${badgeIcons}${username}: ${messageFormatted}`;
           chatMessages.appendChild(newMessage);
 
           //if chat messages exceed 30, trim the list down

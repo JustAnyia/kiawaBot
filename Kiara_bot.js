@@ -1,7 +1,7 @@
 //load all the required crap
-import tmi from "tmi.js"
 import TES from "tesjs";
 import axios from "axios";
+//import open from "open";
 import jsonfile from "jsonfile";
 const quote_Path = './data/quotes.json';
 const streak_Path = './data/streaks.json';
@@ -55,6 +55,8 @@ const channelName = process.env.BROADCASTER_NAME;
 //details for Twitch OAuth
 const clientId = process.env.CLIENT_ID;
 const clientSecret = process.env.CLIENT_SECRET;
+const yt_clientId = process.env.YT_CLIENT_ID;
+const yt_clientSecret = process.env.YT_CLIENT_SECRET;
 const botID = process.env.BOT_ID;
 const botName = process.env.BOT_NAME;
 const INCENTIVEPATH = process.env.INCENTIVE_PATH;
@@ -77,6 +79,9 @@ const scopes = [
     'moderator:manage:banned_users',
     'user:read:chat',
     'channel:bot',
+    'user:read:chat',
+    'user:write:chat',
+    'user:bot',
     'moderator:read:blocked_terms',
     'moderator:read:chat_settings',
     'moderator:read:unban_requests',
@@ -84,6 +89,9 @@ const scopes = [
     'moderator:read:chat_messages',
     'moderator:read:moderators',
     'moderator:read:vips'
+];
+
+const yt_scopes = [
 ];
 //Variables for the !server command
 var servers = ["the Hyrule", "the BOP", "the Eorzean", "the Aether",
@@ -106,6 +114,8 @@ var allow_List = ["baeginning", "caeshura", "chocolatedave", "clockworkophelia",
 
 const oAuthPort = 3000;
 const redirectUri = 'http://localhost:' + oAuthPort
+const yt_oAuthPort = 5000;
+const yt_redirectUri = 'http://localhost:' + oAuthPort
 //variables to store auth-related data
 let validationTicker = null;
 let twitchAuthReady = false;
@@ -118,8 +128,8 @@ authListener.get("/", (req, res) => {
     exchangeCodeForAccessToken(req.query.code)
         .then(tokenData => {
             res.send("You're now Authorized!  You can close this tab and return to the bot");
-            authData.update('twitch.access_token', tokenData.access_token);
-            authData.update('twitch.refresh_token', tokenData.refresh_token);
+            authData.update('twitchBroadcaster.access_token', tokenData.access_token);
+            authData.update('twitchBroadcaster.refresh_token', tokenData.refresh_token);
             validateAccessToken();
             validationTicker = setInterval(() => { validateAccessToken(); }, 1000 * 600);
         })
@@ -129,8 +139,10 @@ authListener.get("/", (req, res) => {
             console.log(error);
         })
 });
+// Start executing the bot from here
 
 //Begin the auth process by opening the user's browser to the consent screen
+//await startAuth()
 async function startAuth() {
 
     const authQueryString = querystring.stringify({
@@ -139,22 +151,22 @@ async function startAuth() {
         redirect_uri: redirectUri,
         scope: scopes.join(' ')
     });
-    const authUrl = new URL("https://id.twitch.tv/oauth2/authorize?" + authQueryString)
-    switch (process.platform) {
-        case 'win32':
-            await spawn('cmd', ["/c", "start", authUrl]);
-            break;
-        case 'linux':
-            await spawn('xdg-open', [authUrl])
-            break;
-        case 'darwin':
-            await spawn('open', [authUrl])
-            break;
-        case _:
-            console.error(`${process.platform} isn't supported for authentication`)
-            process.exit(1);
-    }
-    console.log('made it to end of startauth')
+    const authUrl = 'https://id.twitch.tv/oauth2/authorize?' + authQueryString;
+    //await open(authUrl);
+    // switch (process.platform) {
+    //     case 'win32':
+    //         await spawn('cmd', ['/c', 'start', '""', authUrl])
+    //         break;
+    //     case 'linux':
+    //         await spawn('xdg-open', [authUrl])
+    //         break;
+    //     case 'darwin':
+    //         await spawn('open', [authUrl])
+    //         break;
+    //     case _:
+    //         console.error(`${process.platform} isn't supported for authentication`)
+    //         process.exit(1);
+    // }
 }
 
 //exchange the authorization code we get from Twitch when the user consents to get an Access Token
@@ -175,27 +187,55 @@ function exchangeCodeForAccessToken(code) {
 
 //attempt to refresh the Access Token using the Refresh Token
 function refreshAccessToken() {
-    const postData = {
+    const postDataBroadcaster = {
         grant_type: 'refresh_token',
         client_id: clientId,
         client_secret: clientSecret,
-        refresh_token: authData.read('twitch.refresh_token'),
+        refresh_token: authData.read('twitchBroadcaster.refresh_token'),
     };
 
-    console.log('Attempting to refresh Access Token...');
+    const postDataBot = {
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: authData.read('twitchBot.refresh_token'),
+    };
 
-    axios.post("https://id.twitch.tv/oauth2/token", postData)
+    console.log('Attempting to refresh Access Token for Broadcaster...');
+
+    axios.post("https://id.twitch.tv/oauth2/token", postDataBroadcaster)
         .then(response => {
             console.log('Access Token was successfully refreshed');
-            authData.update('twitch.access_token', response.data.access_token);
-            authData.update('twitch.refresh_token', response.data.refresh_token);
+            authData.update('twitchBroadcaster.access_token', response.data.access_token);
+            authData.update('twitchBroadcaster.refresh_token', response.data.refresh_token);
             validateAccessToken();
         })
         .catch(error => {
             if (error.response.status === 401 || error.response.status === 400) {
                 console.log('Unable to refresh Access Token, requesting new auth consent from user');
-                authData.update('twitch.access_token', '');
-                authData.update('twitch.refresh_token', '');
+                authData.update('twitchBroadcaster.access_token', '');
+                authData.update('twitchBroadcaster.refresh_token', '');
+                twitchAuthReady = false;
+                clearInterval(validationTicker)
+                // clearInterval(accessRefresh)
+                startAuth();
+            } else {
+                console.log(error);
+            }
+        });
+        console.log('Attempting to refresh Access Token for Bot...')
+            axios.post("https://id.twitch.tv/oauth2/token", postDataBot)
+        .then(response => {
+            console.log('Access Token was successfully refreshed');
+            authData.update('twitchBot.access_token', response.data.access_token);
+            authData.update('twitchBot.refresh_token', response.data.refresh_token);
+            validateAccessToken();
+        })
+        .catch(error => {
+            if (error.response.status === 401 || error.response.status === 400) {
+                console.log('Unable to refresh Access Token, requesting new auth consent from user');
+                authData.update('twitchBot.access_token', '');
+                authData.update('twitchBot.refresh_token', '');
                 twitchAuthReady = false;
                 clearInterval(validationTicker)
                 // clearInterval(accessRefresh)
@@ -211,10 +251,31 @@ function validateAccessToken() {
     console.log('Attempting to validate Access Token...');
 
     axios.get("https://id.twitch.tv/oauth2/validate", {
-        headers: { Authorization: 'Bearer ' + authData.read('twitch.access_token') }
+        headers: { Authorization: 'Bearer ' + authData.read('twitchBroadcaster.access_token') }
     })
         .then(response => {
-            console.log('Access Token was successfully validated');
+            console.log('Access Token for Broadcaster was successfully validated');
+            if (twitchAuthReady === false) {
+                twitchAuthReady = true;
+                handleInitialAuthValidation();
+            }
+        })
+        .catch(error => {
+            if (error?.response?.status === 401) {
+                console.log('Unable to validate Access Token, requesting a fully refreshed token');
+            }
+            else {
+                console.log('Unable to validate Access Token for an unexpected reason; requesting a fully refreshed token', error);
+            }
+            // no matter what went wrong when validating, let's just refresh the token entirely to try and recover?
+            twitchAuthReady = false;
+            refreshAccessToken();
+        })
+    axios.get("https://id.twitch.tv/oauth2/validate", {
+        headers: { Authorization: 'Bearer ' + authData.read('twitchBot.access_token') }
+    })
+        .then(response => {
+            console.log('Access Token for Broadcaster was successfully validated');
             if (twitchAuthReady === false) {
                 twitchAuthReady = true;
                 handleInitialAuthValidation();
@@ -241,7 +302,7 @@ function apiGetRequest(method, parameters) {
         const requestQueryString = querystring.stringify(parameters);
         const axiosConfig = {
             headers: {
-                "Authorization": "Bearer " + authData.read('twitch.access_token'),
+                "Authorization": "Bearer " + authData.read('twitchBroadcaster.access_token'),
                 "Client-Id": clientId
             }
         }
@@ -265,12 +326,38 @@ function apiPostRequest(method, parameters, data) {
         const axiosConfig = {
 
             headers: {
-                "Authorization": "Bearer " + authData.read('twitch.access_token'),
+                "Authorization": "Bearer " + authData.read('twitchBroadcaster.access_token'),
                 "Client-Id": clientId,
                 "Content-Type": 'application/json'
             }
         }
-        //axios.post("https://api.twitch.tv/helix/" + method + "?" + requestQueryString, axiosConfig)
+        axios.post("https://api.twitch.tv/helix/" + method + "?" + requestQueryString, data, axiosConfig)
+            .then(response => resolve(response.data))
+            .catch(error => {
+                if (error.response.status === 401) {
+                    console.log('Unable to validate Access Token, requesting a refreshed token');
+                    refreshAccessToken();
+                }
+                if (error.response.status === 400) {
+                    console.log(error.response.data.message);
+                }
+                reject(error);
+            });
+    });
+}
+
+function apiPostRequestBot(method, parameters, data) {
+    return new Promise((resolve, reject) => {
+        if (!twitchAuthReady) reject(new Error("twitch not yet authorized, wait a bit and try again"));
+        const requestQueryString = querystring.stringify(parameters);
+        const axiosConfig = {
+
+            headers: {
+                "Authorization": "Bearer " + authData.read('twitchBot.access_token'),
+                "Client-Id": clientId,
+                "Content-Type": 'application/json'
+            }
+        }
         axios.post("https://api.twitch.tv/helix/" + method + "?" + requestQueryString, data, axiosConfig)
             .then(response => resolve(response.data))
             .catch(error => {
@@ -396,15 +483,21 @@ function serverBoop(user_id, duration, reason) {
             .then(data => resolve(data.data))
             .catch(error => {
                 console.log("Error when doin' a boop");
-                setTimeout(() => { client.say('#' + channelName, 'kiawaBONK kiawaBONK') }, 3000);
-                setTimeout(() => { client.say('#' + channelName, 'kiawaWat') }, 6000);
-                setTimeout(() => { client.say('#' + channelName, 'kiawaPuff') }, 8000);
-                setTimeout(() => { client.say('#' + channelName, 'kiawaBONK kiawaBONK kiawaBONK') }, 11000);
-                setTimeout(() => { client.say('#' + channelName, 'kiawaDed') }, 13000);
+                setTimeout(() => { postMessage(botID, 'kiawaBONK kiawaBONK') }, 3000);
+                setTimeout(() => { postMessage(botID, 'kiawaWat') }, 6000);
+                setTimeout(() => { postMessage(botID, 'kiawaPuff') }, 8000);
+                setTimeout(() => { postMessage(botID, 'kiawaBONK kiawaBONK kiawaBONK') }, 11000);
+                setTimeout(() => { postMessage(botID, 'kiawaDed') }, 13000);
 
             });
-        client.say('#' + channelName, 'kiawaBONK');
+        postMessage(botID, 'kiawaBONK');
     });
+}
+
+function postMessage(user_id, message) {
+    return new Promise((resolve, reject) => {
+        apiPostRequestBot('chat/messages', { broadcaster_id: broadcasterID, sender_id: user_id, message: message})
+    })
 }
 
 //handle changes to the status of the auth-data file
@@ -504,8 +597,8 @@ class TesManager {
                 identity: {
                     id: process.env.CLIENT_ID,
                     secret: process.env.CLIENT_SECRET,
-                    accessToken: authData.read('twitch.access_token'),
-                    refreshToken: authData.read('twitch.refresh_token')
+                    accessToken: authData.read('twitchBroadcaster.access_token'),
+                    refreshToken: authData.read('twitchBroadcaster.refresh_token')
                 },
                 listener: { type: "websocket", port: 8082 },
             });
@@ -773,8 +866,9 @@ class TesManager {
     }
 }
 const tesManager = new TesManager();
-const subCondition = { broadcaster_user_id: broadcasterID };
-const subConditionMod = { broadcaster_user_id: broadcasterID, moderator_user_id: broadcasterID }
+const subCondition = { broadcaster_user_id: broadcasterID};
+const subCondition2 = { broadcaster_user_id: broadcasterID, user_id: broadcasterID};
+const subConditionMod = { broadcaster_user_id: broadcasterID, moderator_user_id: broadcasterID};
 let websockets = [];
 // setup websocket server for chat widget
 const socket = new WebSocketServer({ port: 8080 });
@@ -868,6 +962,20 @@ const userIdsWhoAlreadyStreaked = {}
 
 // Under no circumstances should a streak failure of any kind crash the bot.
 function updateStreaksSafely(userId, userName, sayItOutLoud = false) {
+    //first check if stream is online, if not, then exit funcion.
+        return new Promise((resolve, reject) => {
+            apiGetRequest('streams', { user_id: broadcasterID, type: 'all', first: '1' })
+                .then(data => {
+                    resolve(data.data);
+                    let streak_List
+            try { streak_List = jsonfile.readFileSync(streak_Path) }
+            catch (e) { }
+            if (data.data[0]===undefined) {
+                console.log('stream is offline, will not update streaks');
+                return;
+            }
+            })
+        })
     try {
         if (userId && userName) {
             updateStreaks(userId, userName, sayItOutLoud);
@@ -907,7 +1015,7 @@ function updateStreaks(userID, userName, sayItOutLoud = false) {
     else {
         const say = msg => {
             if (sayItOutLoud) {
-                client.say(channelName, msg);
+                postMessage(botID, msg);
             }
         }
 
@@ -1089,6 +1197,13 @@ tesManager.queueSubscription('stream.offline', subCondition, event => {
     console.log('Stream Ended, logged to streaks')
 });
 
+tesManager.queueSubscription('channel.chat.message', subCondition2, tags => {
+            // First, print the message to the program's console.
+        messageHandler(tags);
+
+
+});
+
 let streamInfo = setTimeout(() => getStreamInfo(broadcasterID, 'all', '1'), 2000);
 
 function getStreamInfo(broadcaster_id, type, first) {
@@ -1100,20 +1215,26 @@ function getStreamInfo(broadcaster_id, type, first) {
                  let streak_List
         try { streak_List = jsonfile.readFileSync(streak_Path) }
         catch (e) { }
+        if (data.data[0]===undefined) {
+            console.log('stream is offline, will not update streaks');
+            return;
+        }
         //if file is empty then initialize it
+        let currentStart = data.data[0].started_at;
+        let sanityCheck=new Date(streak_List.Current_Stream.Start);
         if (!streak_List) {
             console.log("No File, Creating New File");
             let lastStart = data.data[0].started_at;
             console.log(lastStart)
-            let currentStart = data.data[0].started_at;
             const initializeStreaks = { Last_Stream: { Start: `${lastStart}`, End: '' }, Current_Stream: { Start: `${lastStart}` }, Users: {} }
             jsonfile.writeFileSync(streak_Path, initializeStreaks, { spaces: 2, EOL: "\n" })
         }
-
+        else if((currentStart - sanityCheck) < 5*60*60*1000){
+            console.log('Bot Restarted, do not update times')
+        }
         //if file is not empty, update stream info
         else {
             console.log("Updating Current Stream Date");
-            let currentStart = data.data[0].started_at;
             console.log(currentStart);
             console.log(data.data[0].started_at);
             let lastStart = new Date(streak_List.Last_Stream.Start);
@@ -1253,24 +1374,24 @@ setInterval(() => {
     if (Duelers.length > 1) {
         let dueler1 = Duelers[0];
         let dueler2 = Duelers[1];
-        client.say(channelName, `Attention Chat! @${dueler1.dueler} is about to duel @${dueler2.dueler}!!`);
-        setTimeout(() => { client.say(channelName, `will ${dueler2.dueler}'s ${dueler2.weapon} be enough to defeat ${dueler1.dueler}'s ${dueler1.weapon}? Duelists take your places!`) }, 1000);
-        setTimeout(() => { client.say(channelName, `Fire in 3!`) }, 3000);
-        setTimeout(() => { client.say(channelName, `2!`) }, 4000);
-        setTimeout(() => { client.say(channelName, `1!`) }, 5000);
+        postMessage(botID, `Attention Chat! @${dueler1.dueler} is about to duel @${dueler2.dueler}!!`);
+        setTimeout(() => { postMessage(botID, `will ${dueler2.dueler}'s ${dueler2.weapon} be enough to defeat ${dueler1.dueler}'s ${dueler1.weapon}? Duelists take your places!`) }, 1000);
+        setTimeout(() => { postMessage(botID, `Fire in 3!`) }, 3000);
+        setTimeout(() => { postMessage(botID, `2!`) }, 4000);
+        setTimeout(() => { postMessage(botID, `1!`) }, 5000);
         //blow up somebody
         setTimeout(() => {
             //coin flip for the winnter
             const coinFlip = Math.random();
             //player 1 wins
             if (coinFlip >= 0.5) {
-                client.say(channelName, `@${dueler1.dueler} obliterated @${dueler2.dueler} with amazing use of their ${dueler1.weapon}`);
+                postMessage(botID, `@${dueler1.dueler} obliterated @${dueler2.dueler} with amazing use of their ${dueler1.weapon}`);
                 serverBoop(`${dueler2.duelerID}`, 60 * 5, `Killed by ${dueler1.dueler}'s ${dueler1.weapon}`)
             }
 
             //player 2 wins
             else {
-                client.say(channelName, `@${dueler2.dueler} obliterated @${dueler1.dueler} with amazing use of their ${dueler2.weapon}`);
+                postMessage(botID, `@${dueler2.dueler} obliterated @${dueler1.dueler} with amazing use of their ${dueler2.weapon}`);
                 serverBoop(`${dueler1.duelerID}`, 60 * 5, `Killed by ${dueler2.dueler}'s ${dueler2.weapon}`)
             };
             //cleanup and remove contestants from array
@@ -1279,19 +1400,6 @@ setInterval(() => {
             , 6000);
     }
 }, 15 * 1000)
-
-
-//connect to twitch chat
-const client = new tmi.Client({
-    options: { debug: true },
-    identity: {
-        username: botName,
-
-        //put this into environment variables later
-        password: process.env.IRC_OAUTH
-    },
-    channels: [channelName]
-});
 
 // function updateIncentiveFile() {
 
@@ -1322,7 +1430,7 @@ function postCommand(command) {
         //format all the bullshit and spit it out in the chat
         try {
             var command_Output = command_Info.Response
-            client.say(channelName, command_Output);
+            postMessage(botID, command_Output);
         }
         catch (error) {
             console.error(err);
@@ -1347,32 +1455,43 @@ setInterval(() => {
 // post first entry in array to postCommand
 //increment to next array index, if at max loop back to start
 
-//connect to chat
-client.connect();
 
 //message handler
-
-client.on('message', async (channel, tags, message, self) => {
-    //determine if chat activity in last 10 minutes
-    if (tags.username != "kiawa_bot") {
-        activityDetection = true;
-        updateStreaksSafely(tags["user-id"], tags.username);
-    }
-
-    // resolve badges for this message
-    const messageBadges = [];
-    if (tags.badges) {
-        for (const [setId, versionId] of Object.entries(tags.badges)) {
-            //parse out the badges that are part of this message
-            const version = await getBadgeVersion(setId, versionId);
-            if (version) {
-                messageBadges.push(version);
+async function messageHandler(tags) {
+            const user_id=tags["chatter_user_id"];
+            const message=tags.message.text;
+            const channel=tags["chatter_user_name"];
+            //determine if chat activity in last ten minutes
+            if (tags.chatter_user_login != "kiawa_bot") {
+                activityDetection = true;
+                updateStreaksSafely(tags.chatter_user_id, channel);
             }
-        }
-    }
+            // resolve badges for this message
+            const messageBadges = [];
+            var ismod=false;
+            var isvip=false;
+            if (tags.badges) {
+                for (const {set_id, id} of tags.badges) {
+                    //parse out the badges that are part of this message
+                    const version = await getBadgeVersion(set_id, id);
+                    if (version) {
+                        messageBadges.push(version);
+                    }
+                    if(set_id==='moderator'){
+                        ismod=true;
+                    }
 
-    //send to websocket
-    sendToAllChatWidgets({ kiawaAction: "Message", channel, tags, message, messageBadges });
+                    if(set_id==='broadcaster'){
+                        ismod=true;
+                    }
+                    if(set_id==='vip'){
+                        isvip=true;
+                    }
+                }
+            }
+
+            //send to websocket
+            sendToAllChatWidgets({ kiawaAction: "Message", tags, channel, message, messageBadges });
 
     ///////////////////////////////////
     //                               //
@@ -1386,55 +1505,55 @@ client.on('message', async (channel, tags, message, self) => {
     //                               //
     ///////////////////////////////////
     // Ignore echoed messages.
-    if (self) return;
+    if (channel==="kiawa_bot") return;
 
     if (message.toLowerCase() === '!hello') {
         // "@alca, heya!"
-        client.say(channel, `@${tags.username}, heya!`);
+        postMessage(botID, `@${channel}, heya!`);
     }
 
     //server
     if (message.toLowerCase() === '!server') {
         var pick = servers[Math.floor(Math.random() * servers.length)]
-        client.say(channel, `I am on ${pick} Server!`);
+        postMessage(botID, `I am on ${pick} Server!`);
 
 
         //time for a timeout
         if (pick === 'the BOP') {
             //  setTimeout(() => {apiPostRequest('moderation/bans', 'broadcaster_id=37055465&moderator_id=37055465', `{"data": {"user_id":"${tags["user-id"]},"duration":"69","reason":"Boop"}}`)
-            setTimeout(() => { serverBoop(`${tags["user-id"]}`, 69, 'Boop') }, 5000);
+            setTimeout(() => { serverBoop(`${user_id}`, 69, 'Boop') }, 5000);
         }
     }
 
     if (message.toLowerCase() === '!yabai') {
         var pick = Math.floor(Math.random() * 101)
         if (pick < 50) {
-            client.say(channel, `@${tags.username} is ${pick}% yabai kiawaLuck`);
+            postMessage(botID, `@${channel} is ${pick}% yabai kiawaLuck`);
         }
         if (pick > 50 && pick < 100) {
-            client.say(channel, `@${tags.username} is ${pick}% yabai kiawaS`);
+            postMessage(botID, `@${channel} is ${pick}% yabai kiawaS`);
         }
         if (pick === 50) {
-            client.say(channel, `@${tags.username} is ${pick}% yabai kiawaBlank`);
+            postMessage(botID, `@${channel} is ${pick}% yabai kiawaBlank`);
         }
         if (pick > 99) {
-            client.say(channel, `@${tags.username} is ${pick}% yabai kiawaBONK`);
+            postMessage(botID, `@${channel} is ${pick}% yabai kiawaBONK`);
         }
     }
 
     if (message.toLowerCase() === '!seiso') {
         var pick = Math.floor(Math.random() * 101)
         if (pick < 50) {
-            client.say(channel, `@${tags.username} is ${pick}% seiso kiawaS`);
+            postMessage(botID, `@${channel} is ${pick}% seiso kiawaS`);
         }
         if (pick > 50 && pick < 100) {
-            client.say(channel, `@${tags.username} is ${pick}% seiso kiawaAYAYA`);
+            postMessage(botID, `@${channel} is ${pick}% seiso kiawaAYAYA`);
         }
         if (pick === 50) {
-            client.say(channel, `@${tags.username} is ${pick}% seiso kiawaBlank`);
+            postMessage(botID, `@${channel} is ${pick}% seiso kiawaBlank`);
         }
         if (pick > 99) {
-            client.say(channel, `@${tags.username} is ${pick}% seiso kiawaPray`);
+            postMessage(botID, `@${channel} is ${pick}% seiso kiawaPray`);
         }
     }
     //split the message to pull out the command from the first word
@@ -1459,7 +1578,7 @@ client.on('message', async (channel, tags, message, self) => {
     if (command === '!addcommand') {
 
         //check if user is in the allow_List (AKA, is a MOD or approved person)
-        if (allow_List.includes(tags.username) || tags.mod === true) {
+        if (allow_List.includes(channel) || ismod === true ) {
 
 
             //Grab the Current Command total
@@ -1506,7 +1625,7 @@ client.on('message', async (channel, tags, message, self) => {
                     if (err) console.error(err)
                 })
                 //respond with success?
-                client.say(channel, `Added Command "!${command_Tag}"`);
+                postMessage(botID, `Added Command "!${command_Tag}"`);
             });
         }
     }
@@ -1514,7 +1633,7 @@ client.on('message', async (channel, tags, message, self) => {
     if (command === '!editcommand') {
 
         //check if user is in the allow_List (AKA, is a MOD or approved person)
-        if (allow_List.includes(tags.username) || tags.mod === true) {
+        if (allow_List.includes(channel) || ismod === true) {
 
             //check and make sure a command field was added
             try {
@@ -1555,7 +1674,7 @@ client.on('message', async (channel, tags, message, self) => {
                 })
 
                 //respond with success?
-                client.say(channel, `Command "!${command_Tag}" Updated Successfully!`);
+                postMessage(botID, `Command "!${command_Tag}" Updated Successfully!`);
             });
         };
     };
@@ -1576,19 +1695,18 @@ client.on('message', async (channel, tags, message, self) => {
     if (command === '!so')
 
         //check if user is allowed to use the command (VIP/mods/allow list only)
-        if (allow_List.includes(tags.username) || tags.mod === true || tags.vip === true) {
+        if (allow_List.includes(channel) || ismod === true || isvip === true) {
  
             //get user id
             try {
                 const user_Name = args.slice(1).join(' ').replaceAll('@', '');
                 if (!user_Name){
-                    client.say(channel, `You need to give me someone to shoutout silly!`);
+                    postMessage(botID, `You need to give me someone to shoutout silly!`);
                 }
                 else{
                     const user_Info = await getUserInfo(user_Name);
-                    console.log(user_Info)
                     if (!user_Info[0]){
-                        client.say(channel, `Sorry, no idea who that is kiawaDed`);
+                        postMessage(botID, `Sorry, no idea who that is kiawaDed`);
                     }
                     else{
                         const userID=user_Info[0].id;
@@ -1596,7 +1714,7 @@ client.on('message', async (channel, tags, message, self) => {
                         const broadcast_info = await getChannelInfo(userID);
                         //const broadcast_info= await axios.get('https://api.twitch.tv/helix/channels?broadcaster_id=37055465', axiosConfig);
                         const category = broadcast_info[0].game_name;
-                        client.say(channel, `join us in following @${user_Name}! they were recently streaming ${category}, over at twitch.tv/${user_Name} that's neat! kiawaCheer`);
+                        postMessage(botID, `join us in following @${user_Name}! they were recently streaming ${category}, over at twitch.tv/${user_Name} that's neat! kiawaCheer`);
                     }
                 }
             }
@@ -1609,7 +1727,7 @@ client.on('message', async (channel, tags, message, self) => {
     //check if it is an add quote command
     if (command === '!addquote') {
         //check if user is a mod or VIP allow_List.includes(tags.username) || 
-        if (allow_List.includes(tags.username) || tags.mod === true || tags.vip === true) {
+        if (allow_List.includes(channel) || ismod === true || isvip === true) {
 
 
             //the remainder of the text is separated from the command, this is the quote text
@@ -1675,7 +1793,7 @@ client.on('message', async (channel, tags, message, self) => {
                     if (err) console.error(err)
                 })
                 //respond with success?
-                client.say(channel, `Added Quote #${quote_Count} ${quote_Text} [${category}] [${day_Formatted}]`);
+                postMessage(botID, `Added Quote #${quote_Count} ${quote_Text} [${category}] [${day_Formatted}]`);
             });
         }
     }
@@ -1729,10 +1847,10 @@ client.on('message', async (channel, tags, message, self) => {
 
                 //format all the bullshit and spit it out in the chat
                 var quote_Output = "Quote #" + quote_ID + ": " + quote_Info.Quote_Text + " [" + quote_Info.Category + "] " + "[" + quote_Info.Date + "]"
-                client.say(channel, quote_Output);
+                postMessage(botID, quote_Output);
             }
             else {
-                client.say(channel, `Number Provided out of range! The highest number is ${quote_Count}`);
+                postMessage(botID, `Number Provided out of range! The highest number is ${quote_Count}`);
             }
         })
     }
@@ -1740,7 +1858,7 @@ client.on('message', async (channel, tags, message, self) => {
     //update incentive goal and bot command id
     if (command === '!updateincentive') {
         //check if user is in the allow_List (AKA, is a MOD or approved person)
-        if (allow_List.includes(tags.username) || tags.mod === true) {
+        if (allow_List.includes(channel) || ismod === true) {
             //Grab the Current incentive goal
             incentiveGoal = incentiveData.read('incentive.goal');
             incentiveGoal = incentiveData.read('incentive.goal');
@@ -1761,7 +1879,7 @@ client.on('message', async (channel, tags, message, self) => {
                 incentiveData.update('incentive.goal', new_Goal);
                 incentiveData.update('incentive.command', new_Identifier);
                 console.log('Incentive Goal Updated from $' + incentiveGoal + ' to $' + new_Goal)
-                client.say(channel, 'Incentive Goal Updated from $' + incentiveGoal + ' to $' + new_Goal);
+                postMessage(botID, 'Incentive Goal Updated from $' + incentiveGoal + ' to $' + new_Goal);
             }
             //updateIncentiveFile();
         }
@@ -1773,8 +1891,8 @@ client.on('message', async (channel, tags, message, self) => {
     //determine a winner via coinflip, loser gets blasted for x amount of time
     //score added for number of duels won
     if (command === '!duel') {
-        let dueler = `${tags.username}`;
-        let duelerID = `${tags["user-id"]}`;
+        let dueler = `${channel}`;
+        let duelerID = `${tags["chatter_user_id"]}`;
         let weapon = (args.slice(1).join(' ') ?? "").trim();
         console.log(weapon)
         if (!weapon) {
@@ -1782,23 +1900,23 @@ client.on('message', async (channel, tags, message, self) => {
         }
 
         if (Duelers.length > 0 && Duelers[Duelers.length - 1].dueler === dueler) {
-            client.say(channel, `@${tags.username} is trying to duel themself and that's kind of sad...`)
+            postMessage(botID, `@${channel} is trying to duel themself and that's kind of sad...`)
         }
         else {
             Duelers.push({ dueler, weapon, duelerID })
 
             if (Duelers.length % 2 == 0) {
 
-                client.say(channel, `@${tags.username} has accepted ${Duelers[Duelers.length - 2].dueler}'s duel and will be fighting with their ${weapon}`)
+                postMessage(botID, `@${channel} has accepted ${Duelers[Duelers.length - 2].dueler}'s duel and will be fighting with their ${weapon}`)
             }
             else {
-                client.say(channel, `@${tags.username} wants to duel with their ${weapon}!! Type '!duel' to fight them!`);
+                postMessage(botID, `@${channel} wants to duel with their ${weapon}!! Type '!duel' to fight them!`);
             }
         }
     }
     if (command === '!addincentive') {
         //check if user is in the allow_List (AKA, is a MOD or approved person)
-        if (allow_List.includes(tags.username) || tags.mod === true) {
+        if (allow_List.includes(channel) || ismod === true) {
             //Grab the Current incentive goal
             incentiveAmount = incentiveData.read('incentive.amount');
             incentiveGoal = incentiveData.read('incentive.goal');
@@ -1813,19 +1931,17 @@ client.on('message', async (channel, tags, message, self) => {
             }
 
             new_Amount = Number(new_Amount) + Number(incentiveAmount);
-            console.log(new_Goal)
             if (typeof new_Amount === 'number') {
                 incentiveData.update('incentive.amount', new_Amount);
                 console.log('Incentive Amount Updated from $' + incentiveData.read('incentive.amount').toFixed(2) + ' to $' + new_Amount.toFixed(2))
-                client.say(channel, 'Incentive Amount Updated from $' + incentiveAmount.toFixed(2) + ' to $' + new_Amount.toFixed(2));
+                postMessage(botID, 'Incentive Amount Updated from $' + incentiveAmount.toFixed(2) + ' to $' + new_Amount.toFixed(2));
             }
-            //updateIncentiveFile();
         }
     }
     //Code to handle editing of existing quotes
     if (command === '!editquote') {
         //check if user is in the allow_List (AKA, is a MOD or approved person)
-        if (allow_List.includes(tags.username) || tags.mod === true || tags.vip === true) {
+        if (allow_List.includes(tags.username) ||ismod === true || isvip === true) {
             //Grab the Current Quote total
             jsonfile.readFile(quote_Path, function(err, quote_List) {
                 if (err) console.error(err)
@@ -1864,11 +1980,11 @@ client.on('message', async (channel, tags, message, self) => {
                     })
 
                     //respond with success?
-                    client.say(channel, `Updated Quote #${quote_Request} ${quote_Edited}`);
+                    postMessage(botID, `Updated Quote #${quote_Request} ${quote_Edited}`);
                 }
 
                 else {
-                    client.say(channel, `Number Provided out of range! The highest number is ${quote_Count}`);
+                    postMessage(botID, `Number Provided out of range! The highest number is ${quote_Count}`);
                 }
             })
         }
@@ -1892,4 +2008,4 @@ client.on('message', async (channel, tags, message, self) => {
         command = command.slice(1);
         postCommand(command);
     }
-}); //on message top level bracket
+}; //on message top level bracket
