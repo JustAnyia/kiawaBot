@@ -964,18 +964,15 @@ const userIdsWhoAlreadyStreaked = {}
 function updateStreaksSafely(userId, userName, sayItOutLoud = false) {
     //first check if stream is online, if not, then exit funcion.
         return new Promise((resolve, reject) => {
-            apiGetRequest('streams', { user_id: broadcasterID, type: 'all', first: '1' })
+           apiGetRequest('streams', { user_id: broadcasterID, type: 'all', first: '1' })
                 .then(data => {
                     resolve(data.data);
-                    let streak_List
-            try { streak_List = jsonfile.readFileSync(streak_Path) }
-            catch (e) { }
             if (data.data[0]===undefined) {
                 console.log('stream is offline, will not update streaks');
                 return;
             }
             })
-        })
+        
     try {
         if (userId && userName) {
             updateStreaks(userId, userName, sayItOutLoud);
@@ -990,8 +987,8 @@ function updateStreaksSafely(userId, userName, sayItOutLoud = false) {
         console.log("updateStreaks failed!", e);
         return false;
     }
+})
 }
-
 //check the current stream start time
 //compare against previous value of current stream time
 //if the same, do nothing (bot was restarted or something)
@@ -1134,16 +1131,14 @@ tesManager.queueSubscription('stream.online', subCondition, event => {
     //if file is not empty, update stream info
     else {
         console.log("Updating Current Stream Date");
-        let currentStart = event.started_at;
-        console.log(currentStart);
-        console.log(event.started_at);
-        let lastStart = new Date(streak_List.Last_Stream.Start);
-        lastStart = Date.parse(lastStart);
+        let currentStart = new Date(event.started_at);
+        let lastStart = new Date(streak_List.Last_Stream.Start); 
         let lastEnd = new Date(streak_List.Last_Stream.End);
         let backupEnd=new Date(streak_List.Last_Stream.Backup_End);
+        currentStart=Date.parse(currentStart);
+        lastStart = Date.parse(lastStart);
         lastEnd = Date.parse(lastEnd);
         backupEnd=Date.parse(backupEnd);
-        console.log(currentStart - backupEnd)
         //update stream times
         //the end of stream was not detected last time, reset the end to a blank value
         if (!lastEnd) {
@@ -1220,8 +1215,10 @@ function getStreamInfo(broadcaster_id, type, first) {
             return;
         }
         //if file is empty then initialize it
-        let currentStart = data.data[0].started_at;
-        let sanityCheck=new Date(streak_List.Current_Stream.Start);
+        let currentStart = new Date(data.data[0].started_at);
+        let sanityCheck= new Date(streak_List.Current_Stream.Start);
+        currentStart=Date.parse(currentStart);
+        sanityCheck=Date.parse(sanityCheck);
         if (!streak_List) {
             console.log("No File, Creating New File");
             let lastStart = data.data[0].started_at;
