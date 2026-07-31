@@ -1,6 +1,7 @@
 //load all the required crap
 import TES from "tesjs";
 import axios from "axios";
+import path from 'path';
 //import open from "open";
 import jsonfile from "jsonfile";
 const quote_Path = './data/quotes.json';
@@ -35,7 +36,7 @@ defaultFiles.forEach(({ path, content }) => {
     if (!fs.existsSync(path)) {
         console.log(`Creating default ${path}...`);
         try {
-            jsonfile.writeFileSync(path, content, { spaces: 2, EOL: "\n" });
+            writeAtomicSync(path, content, { spaces: 2, EOL: "\n" });
         } catch (error) {
             console.error(`Failed to create ${path}:`, error);
         }
@@ -971,22 +972,25 @@ function updateStreaksSafely(userId, userName, sayItOutLoud = false) {
                 console.log('stream is offline, will not update streaks');
                 return;
             }
+            else{
+                try {
+                    if (userId && userName) {
+                        console.log('updating user streak!')
+                        updateStreaks(userId, userName, sayItOutLoud);
+                    }
+                    else {
+                        // could have been something like an anonymous cheer
+                        console.log("No user given when updating a streak?  That's probably okay once in a while.");
+                    }
+                    return true;
+                }
+                catch (e) {
+                    console.log("updateStreaks failed!", e);
+                    return false;
+                }
+            }
             })
-        
-    try {
-        if (userId && userName) {
-            updateStreaks(userId, userName, sayItOutLoud);
-        }
-        else {
-            // could have been something like an anonymous cheer
-            console.log("No user given when updating a streak?  That's probably okay once in a while.");
-        }
-        return true;
-    }
-    catch (e) {
-        console.log("updateStreaks failed!", e);
-        return false;
-    }
+            
 })
 }
 //check the current stream start time
@@ -1108,11 +1112,40 @@ function updateStreaks(userID, userName, sayItOutLoud = false) {
         }
 
         //write the file
-        jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" });
+        writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" });
         userIdsWhoAlreadyStreaked[userID] = true;
     }
 }
 
+function writeAtomicSync(filePath,data,options, retries=3,delay =100){
+    console.log('writing to file')
+    const tempName=`${Date.now()}`;
+    const tempPath=`${path.dirname(filePath)}/.${tempName}.tmp`;
+    jsonfile.writeFileSync(tempPath, data, options);
+    try {
+        fs.renameSync(tempPath,filePath);
+        return;
+    }
+    catch (error) {
+        if (retries>0) {
+            console.log(`Error writing file ${filePath}, retrying`);
+        }
+        else{
+            console.log(`Failed after maximum retry attempts. ${error.message}`)
+        }
+        try {
+            fs.unlinkSync(tempPath);
+            console.log('File deleted successfully');
+        }
+        catch (err) {
+            console.error('Error deleting file:', err);
+        }
+    
+        if (retries>0) {
+            setTimeout(() => {writeAtomicSync(filePath,data,options,retries-1,delay+1000)},delay);
+        }
+    }
+}
 tesManager.queueSubscription('stream.online', subCondition, event => {
     console.log("stream online detected");
     let streak_List
@@ -1125,17 +1158,19 @@ tesManager.queueSubscription('stream.online', subCondition, event => {
         console.log(lastStart)
         let currentStart = event.started_at;
         const initializeStreaks = { Last_Stream: { Start: `${lastStart}`, End: '' }, Current_Stream: { Start: `${lastStart}` }, Users: {} }
-        jsonfile.writeFileSync(streak_Path, initializeStreaks, { spaces: 2, EOL: "\n" })
+        writeAtomicSync(streak_Path, initializeStreaks, { spaces: 2, EOL: "\n" })
     }
 
     //if file is not empty, update stream info
     else {
         console.log("Updating Current Stream Date");
         let currentStart = new Date(event.started_at);
+        let currentStartISO = currentStart;
         let lastStart = new Date(streak_List.Last_Stream.Start); 
         let lastEnd = new Date(streak_List.Last_Stream.End);
         let backupEnd=new Date(streak_List.Last_Stream.Backup_End);
-        currentStart=Date.parse(currentStart);
+        let savedStart=new Date(streak_List.Current_Stream.Start);
+        currentStart = Date.parse(currentStart);
         lastStart = Date.parse(lastStart);
         lastEnd = Date.parse(lastEnd);
         backupEnd=Date.parse(backupEnd);
@@ -1144,8 +1179,8 @@ tesManager.queueSubscription('stream.online', subCondition, event => {
         if (!lastEnd) {
             console.log('End time was null');
                 streak_List.Last_Stream.Start = streak_List.Current_Stream.Start;
-                streak_List.Current_Stream.Start = currentStart;
-                jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" });
+                streak_List.Current_Stream.Start = currentStartISO;
+                writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" });
 
         }
         
@@ -1157,23 +1192,20 @@ tesManager.queueSubscription('stream.online', subCondition, event => {
             console.log('stream end detection did not work last stream');
             streak_List.Last_Stream.End = "";
             streak_List.Last_Stream.Start = streak_List.Current_Stream.Start;
-            streak_List.Current_Stream.Start = currentStart;
-            jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
+            streak_List.Current_Stream.Start = currentStartISO;
+            writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
         }
         //all is good, do standard procedure
 
-        //stream offline not detected so everything is messed up, likely due to internet problem, don't update any times.
-        else if (streak_List.Current_Stream.Start > lastEnd) {
-            console.log('Stream Started shortly after last stream, do not update times')
-        }
 
 
         else {
             console.log('all is good on stream online check')
             streak_List.Last_Stream.Start = streak_List.Current_Stream.Start;
-            streak_List.Current_Stream.Start = currentStart;
+            streak_List.Current_Stream.Start = currentStartISO;
             streak_List.Last_Stream.End=streak_List.Last_Stream.Backup_End;
-            jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
+            Object.keys(userIdsWhoAlreadyStreaked).forEach(key => delete userIdsWhoAlreadyStreaked[key]);
+            writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
         }
         console.log(lastStart);
         console.log(lastEnd);
@@ -1188,7 +1220,7 @@ tesManager.queueSubscription('stream.offline', subCondition, event => {
     //update stream times
     const now = new Date();
     streak_List.Last_Stream.Backup_End = now;
-    jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
+    writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
     console.log('Stream Ended, logged to streaks')
 });
 
@@ -1216,6 +1248,7 @@ function getStreamInfo(broadcaster_id, type, first) {
         }
         //if file is empty then initialize it
         let currentStart = new Date(data.data[0].started_at);
+        let currentStartISO=currentStart;
         let sanityCheck= new Date(streak_List.Current_Stream.Start);
         currentStart=Date.parse(currentStart);
         sanityCheck=Date.parse(sanityCheck);
@@ -1224,7 +1257,7 @@ function getStreamInfo(broadcaster_id, type, first) {
             let lastStart = data.data[0].started_at;
             console.log(lastStart)
             const initializeStreaks = { Last_Stream: { Start: `${lastStart}`, End: '' }, Current_Stream: { Start: `${lastStart}` }, Users: {} }
-            jsonfile.writeFileSync(streak_Path, initializeStreaks, { spaces: 2, EOL: "\n" })
+            writeAtomicSync(streak_Path, initializeStreaks, { spaces: 2, EOL: "\n" })
         }
         else if((currentStart - sanityCheck) < 5*60*60*1000){
             console.log('Bot Restarted, do not update times')
@@ -1232,12 +1265,12 @@ function getStreamInfo(broadcaster_id, type, first) {
         //if file is not empty, update stream info
         else {
             console.log("Updating Current Stream Date");
-            console.log(currentStart);
             console.log(data.data[0].started_at);
             let lastStart = new Date(streak_List.Last_Stream.Start);
             lastStart = Date.parse(lastStart);
             let lastEnd = new Date(streak_List.Last_Stream.End);
             let backupEnd=new Date(streak_List.Last_Stream.Backup_End);
+            let savedStart=new Date(streak_List.Current_Stream.Start);
             lastEnd = Date.parse(lastEnd);
             backupEnd=Date.parse(backupEnd);
             console.log(currentStart - backupEnd)
@@ -1246,8 +1279,8 @@ function getStreamInfo(broadcaster_id, type, first) {
             if (!lastEnd) {
                 console.log('End time was null');
                     streak_List.Last_Stream.Start = streak_List.Current_Stream.Start;
-                    streak_List.Current_Stream.Start = currentStart;
-                    jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" });
+                    streak_List.Current_Stream.Start = currentStartISO;
+                    writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" });
 
             }
             
@@ -1259,23 +1292,19 @@ function getStreamInfo(broadcaster_id, type, first) {
                 console.log('stream end detection did not work last stream');
                 streak_List.Last_Stream.End = "";
                 streak_List.Last_Stream.Start = streak_List.Current_Stream.Start;
-                streak_List.Current_Stream.Start = currentStart;
-                jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
+                streak_List.Current_Stream.Start = currentStartISO;
+                writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
             }
             //all is good, do standard procedure
-
-            //stream offline not detected so everything is messed up, likely due to internet problem, don't update any times.
-            else if (streak_List.Current_Stream.Start > lastEnd) {
-                console.log('Stream Started shortly after last stream, do not update times')
-            }
 
 
             else {
                 console.log('all is good on stream online check')
                 streak_List.Last_Stream.Start = streak_List.Current_Stream.Start;
-                streak_List.Current_Stream.Start = currentStart;
+                streak_List.Current_Stream.Start = currentStartISO;
                 streak_List.Last_Stream.End=streak_List.Last_Stream.Backup_End;
-                jsonfile.writeFileSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
+                Object.keys(userIdsWhoAlreadyStreaked).forEach(key => delete userIdsWhoAlreadyStreaked[key]);
+                writeAtomicSync(streak_Path, streak_List, { spaces: 2, EOL: "\n" })
             }
             console.log(lastStart);
             console.log(lastEnd);
@@ -1606,6 +1635,7 @@ async function messageHandler(tags) {
 
                 //I don't know how errors work so this just stops it from clogging the window
                 catch (err) {
+                    console.log('hmm command error!')
                 }
 
                 //Generate json format data object to add to the file
@@ -1618,9 +1648,13 @@ async function messageHandler(tags) {
                 command_List.push(command_Formatted)
 
                 //dump out a new file
-                jsonfile.writeFile(command_Path, command_List, { spaces: 2 }, function(err) {
-                    if (err) console.error(err)
-                })
+                try {
+                    writeAtomicSync(command_Path, command_List, { spaces: 2 })
+                    
+                }
+                catch (error) {
+                    postMessage(botID, `Adding command failed, retrying...`);
+                }
                 //respond with success?
                 postMessage(botID, `Added Command "!${command_Tag}"`);
             });
@@ -1657,18 +1691,11 @@ async function messageHandler(tags) {
                     }
                 );
 
-                console.log(command_List.find(
-                    (search) => {
-                        return search.Tag === command_Tag;
-                    }))
                 //update the command text
-                console.log(command_List)
                 command_List[Number(command_Info.Index)].Response = command_Text
 
                 //dump out a new file
-                jsonfile.writeFile(command_Path, command_List, { spaces: 2 }, function(err) {
-                    if (err) console.error(err)
-                })
+                writeAtomicSync(command_Path, command_List, { spaces: 2 })
 
                 //respond with success?
                 postMessage(botID, `Command "!${command_Tag}" Updated Successfully!`);
@@ -1786,9 +1813,7 @@ async function messageHandler(tags) {
                 quote_List.push(quote_Formatted)
 
                 //dump out a new file
-                jsonfile.writeFile(quote_Path, quote_List, { spaces: 2 }, function(err) {
-                    if (err) console.error(err)
-                })
+                writeAtomicSync(quote_Path, quote_List, { spaces: 2 })
                 //respond with success?
                 postMessage(botID, `Added Quote #${quote_Count} ${quote_Text} [${category}] [${day_Formatted}]`);
             });
@@ -1972,9 +1997,7 @@ async function messageHandler(tags) {
                     quote_List[quote_Request].Quote_Text = quote_Edited
 
                     //dump out a new file
-                    jsonfile.writeFile(quote_Path, quote_List, { spaces: 2 }, function(err) {
-                        if (err) console.error(err)
-                    })
+                    writeAtomicSync(quote_Path, quote_List, { spaces: 2 } )
 
                     //respond with success?
                     postMessage(botID, `Updated Quote #${quote_Request} ${quote_Edited}`);
