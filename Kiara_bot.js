@@ -9,6 +9,7 @@ const streak_Path = './data/streaks.json';
 const command_Path = './data/command_List.json';
 import AuthDataHelper from "./AuthDataHelper.js";
 import IncentiveHelper from "./IncentiveHelper.js";
+import QuoteHelper, {castIdToNumber} from "./QuoteHelper.js";
 import { WebSocketServer } from "ws";
 import express from "express"
 
@@ -543,6 +544,7 @@ const authData = new AuthDataHelper();
 
 //start up the incentive handler
 const incentiveData = new IncentiveHelper();
+const quoteData = new QuoteHelper(quote_Path, writeAtomicSync);
 authData.statusCallback = handleAuthFileStatusChange;
 authData.loadData();
 validateAccessToken();
@@ -1714,7 +1716,78 @@ async function messageHandler(tags) {
     //                               //
     ///////////////////////////////////
 
-
+    if (command === "!quote") {
+        
+        //check and see if a specific number was requested
+        const rawId = args.slice(1).join(" ");
+        let id = castIdToNumber(rawId);
+        
+        /** @type Quote */
+        let quote;
+        if (id > 0) {
+            quote = quoteData.findByIndex(id);
+        }
+        else {
+            quote = quoteData.findRandom();
+        }
+        
+        if (quote) {
+            // format all the bullshit and spit it out in the chat
+            const message = `Quote #${quote.Index}: ${quote.Quote_Text} [${quote.Category}] [${quote.Date}]`;
+            postMessage(botID, message);
+        }
+        else {
+            const maxIndex = quoteData.getMaxIndex();
+            postMessage(botID, `Number Provided out of range! The highest number is ${maxIndex}`);
+        }
+    }
+    
+    if (command === "!addquote") {
+        //check if user is a mod or VIP allow_List.includes(tags.username) ||
+        if (allow_List.includes(channel) || ismod === true || isvip === true) {
+            
+            //the remainder of the text is separated from the command, this is the quote text
+            const textToAdd = args.slice(1).join(" ");
+            
+            //Grab the category info
+            const broadcast_info = await getChannelInfo(broadcasterID);
+            const categoryToAdd = broadcast_info[0].game_name;
+            
+            const addedQuote = quoteData.add(textToAdd, channel, categoryToAdd);
+            
+            if (addedQuote) {
+                postMessage(botID, `Added Quote #${addedQuote.Index} ${addedQuote.Quote_Text} [${addedQuote.Category}] [${addedQuote.Date}]`);
+            }
+            else {
+                postMessage(botID, `Quote couldn't be added... check the bot logs. kiawaSad`);
+            }
+        }
+    }
+    
+    if (command === "!editquote") {
+        //check if user is in the allow_List (AKA, is a MOD or approved person)
+        if (allow_List.includes(channel) || ismod === true || isvip === true) {
+            
+            //check and see if a specific number was requested
+            const idToUpdate = args[1] ? args[1].toLowerCase() : undefined;
+            
+            //this takes everything after the quote number and recombines it to be the updated quote text to be written
+            const textToUpdate = args.slice(2).join(" ");
+            
+            //update the quote
+            const updatedQuote = quoteData.edit(idToUpdate, textToUpdate);
+            
+            if (updatedQuote) {
+                postMessage(botID, `Updated Quote #${updatedQuote.Index} ${updatedQuote.Quote_Text}`);
+            }
+            else {
+                //Grab the highest quote ID
+                const maxIndex = quoteData.getMaxIndex();
+                postMessage(botID, `Number Provided out of range! The highest number is ${maxIndex}`);
+            }
+            
+        }
+    }
 
     if (command === '!so')
 
@@ -1748,134 +1821,6 @@ async function messageHandler(tags) {
 
             //I don't know how errors work so this just stops it from clogging the window
         }
-    //check if it is an add quote command
-    if (command === '!addquote') {
-        //check if user is a mod or VIP allow_List.includes(tags.username) || 
-        if (allow_List.includes(channel) || ismod === true || isvip === true) {
-
-
-            //the remainder of the text is separated from the command, this is the quote text
-            const quote_Text = args.slice(1).join(' ');
-
-            //Grab the Current Quote total
-            jsonfile.readFile(quote_Path, async function(err, quote_List) {
-                if (err) {
-                    console.error(err)
-                }
-
-                //search the relevant field in the json
-                var quote_Count = quote_List.find(
-                    (search) => {
-                        return search.Quote_Count;
-                    }
-                );
-
-                //increase the quote count by 1
-                quote_Count = Number(quote_Count.Quote_Count) + 1;
-
-                //grab the username
-                const quote_Requestor = tags.username;
-
-                //Grab the category info code
-                //37055465
-                const broadcast_info = await getChannelInfo(broadcasterID);
-                //const broadcast_info= await axios.get('https://api.twitch.tv/helix/channels?broadcaster_id=37055465', axiosConfig);
-                const category = broadcast_info[0].game_name;
-
-
-                //get current date and time
-                const TOD = new Date()
-                let minutes = TOD.getMinutes();
-
-                //make sure there are always two digits for the minutes
-                let formatted_Minutes = minutes.toString().padStart(2, "0")
-                if (TOD.getHours() >= 12) {
-                    var hour_Minutes = TOD.getHours() - 12 + ":" + formatted_Minutes + " PM"
-                }
-
-                else {
-                    var hour_Minutes = TOD.getHours() + ":" + formatted_Minutes + " AM"
-                }
-
-                //Heck 0 indexed months
-                const month = TOD.getMonth() + 1;
-
-                //put all the crap together
-                const day_Formatted = (TOD.getFullYear()) + "/" + month + "/" + (TOD.getDate()) + " " + hour_Minutes
-
-                //Generate json format data object to add to the file
-                const quote_Formatted = { Index: `${quote_Count}`, Quote_Text: `${quote_Text}`, Submitter: `${quote_Requestor}`, Category: `${category}`, Date: `${day_Formatted}` }
-
-                //Update the quote count in the json file
-                quote_List[0].Quote_Count = `${quote_Count}`
-
-                //add the new quote to the json object
-                quote_List.push(quote_Formatted)
-
-                //dump out a new file
-                writeAtomicSync(quote_Path, quote_List, { spaces: 2 })
-                //respond with success?
-                postMessage(botID, `Added Quote #${quote_Count} ${quote_Text} [${category}] [${day_Formatted}]`);
-            });
-        }
-    }
-    if (command === '!quote') {
-
-        //Grab the Current Quote total
-        jsonfile.readFile(quote_Path, function(err, quote_List) {
-            if (err) console.error(err)
-            //console.log(quote_List)
-
-            //search the relevant field in the json
-            var quote_Count = quote_List.find(
-                (search) => {
-                    return search.Quote_Count;
-                }
-            );
-
-            //the comparison needs a number and not a string, convert it here
-            quote_Count = Number(quote_Count.Quote_Count);
-
-            //check and see if a specific number was requested
-            try {
-                var quote_ID = args.slice(1).join(' ');
-                //console.log(args)
-                // var  quote_ID= args[1]
-            }
-
-            //I don't know how errors work so this just stops it from clogging the window
-            catch (err) {
-                console.log(err)
-            }
-
-            //generate a random quote if no number specified
-            if (quote_ID === '') {
-                var quote_ID = Math.floor(Math.random() * quote_Count + 1);
-            }
-
-
-            //check if the provided number is within the range
-            if (quote_ID <= quote_Count) {
-
-                //the find function needs a string and not a number, convert it here
-                quote_ID = String(quote_ID)
-
-                //search for the quote number and get all the info
-                var quote_Info = quote_List.find(
-                    (search) => {
-                        return search.Index === quote_ID;
-                    }
-                );
-
-                //format all the bullshit and spit it out in the chat
-                var quote_Output = "Quote #" + quote_ID + ": " + quote_Info.Quote_Text + " [" + quote_Info.Category + "] " + "[" + quote_Info.Date + "]"
-                postMessage(botID, quote_Output);
-            }
-            else {
-                postMessage(botID, `Number Provided out of range! The highest number is ${quote_Count}`);
-            }
-        })
-    }
 
     //update incentive goal and bot command id
     if (command === '!updateincentive') {
@@ -1958,55 +1903,6 @@ async function messageHandler(tags) {
                 console.log('Incentive Amount Updated from $' + incentiveData.read('incentive.amount').toFixed(2) + ' to $' + new_Amount.toFixed(2))
                 postMessage(botID, 'Incentive Amount Updated from $' + incentiveAmount.toFixed(2) + ' to $' + new_Amount.toFixed(2));
             }
-        }
-    }
-    //Code to handle editing of existing quotes
-    if (command === '!editquote') {
-        //check if user is in the allow_List (AKA, is a MOD or approved person)
-        if (allow_List.includes(tags.username) ||ismod === true || isvip === true) {
-            //Grab the Current Quote total
-            jsonfile.readFile(quote_Path, function(err, quote_List) {
-                if (err) console.error(err)
-
-                //search the relevant field in the json
-                var quote_Count = quote_List.find(
-                    (search) => {
-                        return search.Quote_Count;
-                    }
-                );
-
-                //the comparison needs a number and not a string, convert it here
-                quote_Count = Number(quote_Count.Quote_Count);
-
-                //check and see if a specific number was requested
-                try {
-                    var quote_Request = args[1].toLowerCase();
-
-                    //this takes everything after the quote number and recombines it to be the updated quote text to be written
-                    var quote_Edited = args.slice(2).join(' ');
-                }
-
-                //I don't know how errors work so this just stops it from clogging the window
-                catch (err) {
-                }
-
-                //check if the provided number is within the range and then write to the file
-                if (Number(quote_Request) <= quote_Count) {
-
-                    //update the quote_Text
-                    quote_List[quote_Request].Quote_Text = quote_Edited
-
-                    //dump out a new file
-                    writeAtomicSync(quote_Path, quote_List, { spaces: 2 } )
-
-                    //respond with success?
-                    postMessage(botID, `Updated Quote #${quote_Request} ${quote_Edited}`);
-                }
-
-                else {
-                    postMessage(botID, `Number Provided out of range! The highest number is ${quote_Count}`);
-                }
-            })
         }
     }
 
