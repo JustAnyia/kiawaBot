@@ -207,7 +207,7 @@
           }
         }
         
-        new ChatBotConnectionManager("ws://192.168.1.116:8080", event => {
+        new ChatBotConnectionManager(`ws://${location.hostname}:8080`, event => {
           /** @type {({kiawaAction: string, [key: string]: any})} */
           const data = JSON.parse(event.data) ; // Parse the JSON string
           if (data.kiawaAction ==="Message_Delete"){
