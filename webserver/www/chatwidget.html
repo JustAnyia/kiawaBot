@@ -1,55 +1,150 @@
 <!DOCTYPE html>
-    <html lang="en">
+<html lang="en">
     <head>
-      <title>Twitch Chat</title>
-      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-      <style type="text/css">
-          html {font-size: 30px;}
-          img {
+        <title>Twitch Chat</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <style>
+            html, body {
+                overflow: hidden;
+                margin: 0;
+                padding: 0;
+            }
+            
+            html {
+                font-size: 30px;
+                line-height: 1.2;
+            }
+            
+            img {
                 vertical-align: middle;
-          }
-
-          .emote{
+            }
+            
+            .emote {
                 width: 1.5rem;
                 aspect-ratio: 1;
-          }
-
-          .badges{
+            }
+            
+            .badges {
                 width: 1rem;
                 aspect-ratio: 1;
                 margin-right: 2px;
-                position: relative; bottom: 2px;
-          }
-
-          .emote-big{
+                position: relative;
+                bottom: 2px;
+                flex-shrink: 0;
+            }
+            
+            .emote-big {
                 width: 4rem;
                 aspect-ratio: 1;
-          }
-
-          .emote-special{
+            }
+            
+            .emote-special {
                 width: 4rem;
-          }
-
-          #chat-messages{
+            }
+            
+            #chat-messages {
                 vertical-align: bottom;
                 height: 100vh;
+                width: 100vw;
                 overflow: hidden;
                 display: flex;
                 align-items: start;
                 justify-content: end;
                 flex-direction: column;
-                /*remove width, set flex-direction to row, then add with to chat message in order to make chat horizontal*/
-          }
 
-          .chat-message{
-                padding: 0.1rem;
-                color: #FFFFFF;
-                font-family: sans-serif; font-weight: 600; font-size: 1rem;
-                text-shadow: -1px -1px 0 black, 1px -1px 0 black, 1px 1px 0 black, -1px 1px 0 black; /* update shadow to be based on font*/
+                --animation-speed: 300ms;
+                --animation-timing-function: ease-out;
+                --max-message-lines: 1; /* overwritten by JS updateMaxMessageLines */
+            }
+            
+            /* display:grid on each message lets us animate from 0fr height to 1fr height (think of it as 0% to 100%) */
+            .chat-message {
+                display: grid;
+                /* workaround/hack because 0fr by itself still expands to minmax(auto, 0fr) which allows content to increase the minimum height */
+                grid-template-rows: minmax(0, 0fr);
+                transition: grid-template-rows var(--animation-speed) var(--animation-timing-function);
+            }
 
-          }
+            .chat-message.chat-message-visible {
+                grid-template-rows: minmax(auto, 1fr);
+            }
 
-      </style>
+            .chat-message-inner {
+                overflow: hidden;
+                min-height: 0;
+                padding: 0;
+                color: white;
+                font-family: sans-serif;
+                font-weight: 600;
+                font-size: 1rem;
+                -webkit-text-stroke: 1px black;
+                opacity: 0;
+                transition: opacity var(--animation-speed) var(--animation-timing-function);
+            }
+
+            .chat-message.chat-message-visible .chat-message-inner {
+                opacity: 1;
+            }
+
+            /* Vertical layout has these message sub-elements flow in order like natural text. Horizontal layout later on these styles needs to treat them differently. */
+            .chat-message-header, .chat-message-body {
+                display: inline;
+            }
+
+            /* Short, wide windows (3:1 aspect ratio or wider) switch to a horizontal layout. */
+            @media (min-aspect-ratio: 3/1) {
+                #chat-messages {
+                    flex-direction: row;
+                    /* change this to affect the spacing between messages */
+                    gap: 0.4rem;
+                    column-rule: 0.4rem solid rgba(0, 0, 0, 0.5);
+                }
+
+                .chat-message {
+                    display: block;
+                    grid-template-rows: unset;
+                    overflow: hidden;
+                    max-width: 0;
+                    flex-shrink: 0;
+                    transition: max-width var(--animation-speed) var(--animation-timing-function);
+                }
+
+                .chat-message.chat-message-visible {
+                    grid-template-rows: unset;
+                    max-width: 10rem; /* change this to allow wider horizontal messages */
+                }
+
+                .chat-message-inner {
+                    min-height: unset;
+                    white-space: normal;
+                    padding-inline: 0.5rem;
+                }
+                
+
+                /* badges and username */
+                .chat-message-header {
+                    display: flex;
+                    align-items: center;
+                }
+
+                /* --max-message-lines is computed in JS (see updateMaxBodyLines) from the widget's concrete height */
+                .chat-message-body {
+                    display: -webkit-box;
+                    -webkit-box-orient: vertical;
+                    -webkit-line-clamp: var(--max-message-lines);
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .chat-message-username {
+                    flex: 1 1 auto;
+                    min-width: 0;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+            }
+        </style>
       <script type="text/javascript">
         class ChatBotConnectionManager {
           /** @typedef {(messageEvent: MessageEvent<string>) => any} MessageHandler */
@@ -112,7 +207,7 @@
           }
         }
         
-        new ChatBotConnectionManager("ws://192.168.1.116:8080", event => {
+        new ChatBotConnectionManager(`ws://${location.hostname}:8080`, event => {
           /** @type {({kiawaAction: string, [key: string]: any})} */
           const data = JSON.parse(event.data) ; // Parse the JSON string
           if (data.kiawaAction ==="Message_Delete"){
@@ -133,6 +228,45 @@
         //these variables are used to get to the emote image urls
         const urlFront="https://static-cdn.jtvnw.net/emoticons/v2/"
         const urlBack="/default/light/3.0"
+        
+        // Recalculates how many lines the window could show if it were in horizontal layout.
+        // Runs but doesn't affect anything in vertical layout.
+        function updateMaxMessageLines() {
+            const chatMessagesElement = document.getElementById("chat-messages");
+            if (!chatMessagesElement) {
+                return;
+            }
+            const lineHeightPx = parseFloat(getComputedStyle(document.documentElement).lineHeight);
+            const headerLines = 1; // badges and username on first line
+            const availableLines = Math.floor(chatMessagesElement.clientHeight / lineHeightPx) - headerLines;
+            const maxLines = Math.max(1, availableLines);
+            chatMessagesElement.style.setProperty('--max-message-lines', maxLines.toString());
+        }
+        window.addEventListener('load', updateMaxMessageLines);
+        window.addEventListener('resize', updateMaxMessageLines);
+        
+        /**
+         * @param {string} html
+         * @returns { HTMLElement | undefined }
+         */
+        function createElementFromHtml(html) {
+            const el = document.createElement("div");
+            try {
+                el.innerHTML = html;
+                
+                if (el.children.length === 1) {
+                    const onlyChild = el.children.item(0);
+                    if (onlyChild instanceof HTMLElement) {
+                        return onlyChild;
+                    }
+                }
+                console.error("Expected a single outer HTML element, but either there were none, more, or it wasn't HTML.  Received:", html);
+                return undefined;
+            }
+            finally {
+                el.remove();
+            }
+        }
 
         //this function is used to sort an array high to low
         function compareStartIndex(a,b) {return b.startIndex - a.startIndex};
@@ -171,6 +305,7 @@
           //pull the userid color
           let userColor=tags.color;
           const messageID=tags["message_id"];
+          const userID=tags["chatter_user_id"];
           if (userColor===null){
             userColor='#bbbbbb'
           }
@@ -179,13 +314,7 @@
           }
 
           // Kiara_bot.js has already read tags.badges and picked out exactly what this message needs, so we can just read image URLs from the messageBadges
-          const badgeIcons = messageBadges.map(version => {
-            const badgeElement = document.createElement("img");
-            badgeElement.src = version.image_url_4x;
-            badgeElement.classList.add("badges")
-            return badgeElement.outerHTML;
-          })
-          .join(""); // combine all the chat badges into one line of html
+          const badgeIconElements = messageBadges.map(version => createElementFromHtml(`<img class="badges" src="${version.image_url_4x}" alt="">`));
 
           //run through the message fragments to build the chat message
           const messageParts=[];
@@ -224,19 +353,42 @@
           messageFormatted = messageFormatted.replace(/\bcrabMissile\b/g, "<img class='emote' src= 'https://cdn.betterttv.net/frankerfacez_emote/31554/4'>");
           messageFormatted = messageFormatted.replace(/\bTitsAMe\b/g, "<img class='emote' src= 'https://cdn.betterttv.net/frankerfacez_emote/196494/4'>");
           messageFormatted = messageFormatted.replace(/\bkiawaSilvia\b/g, "<img class='emote-special' src= 'emotes/kiawaSilvia.png'>");
-          //make color html for username
-          username=`<span style="color:${userColor}">${username}</span>`
-          //push the chat message to the webpage
-          const newMessage = document.createElement('div');
-          newMessage.classList.add("chat-message")
-          newMessage.setAttribute('messageID',messageID)
-          newMessage.setAttribute('userID',tags["chatter_user_id"])
-          newMessage.innerHTML = `${badgeIcons}${username}: ${messageFormatted}`;
+          const usernameElement = createElementFromHtml(`<span class="chat-message-username" style="color:${userColor}">${username}:</span>`);
+          
+          // Push the chat message to the webpage.
+          // .chat-message is the outer element that grows/fades in.
+          const newMessage = createElementFromHtml(`<div class="chat-message" messageID="${messageID}" userID="${userID}"></div>`);
+          // .chat-message-inner holds the actual content.
+          const newMessageInner = createElementFromHtml(`<div class="chat-message-inner"></div>`);
+          // .chat-message-header (badges and username) and .chat-message-body (the message) need to be separate elements,
+          // so they can flow differently in vertical and horizontal layouts.
+          const newMessageHeader = createElementFromHtml(`<span class="chat-message-header"></span>`);
+          const newMessageBody = createElementFromHtml(`<span class="chat-message-body">${messageFormatted}</span>`);
+          
+          newMessageHeader.append(...badgeIconElements);
+          newMessageHeader.appendChild(usernameElement);
+          
+          newMessageInner.appendChild(newMessageHeader);
+          newMessageInner.append(" ");
+          newMessageInner.appendChild(newMessageBody);
+          
+          newMessage.appendChild(newMessageInner);
+          
           chatMessages.appendChild(newMessage);
 
           //if chat messages exceed 30, trim the list down
-          chatMessages.replaceChildren(...Array.prototype.slice.call(chatMessages.children, -30))
-          document.scrollingElement.scrollTop = 999999
+          while (chatMessages.children.length > 30) {
+              chatMessages.children[0].remove();
+          }
+          
+          // If we're dropping messages, animate the topmost remaining child back to zero size before we remove them entirely next time.
+          // Honestly probably doesn't matter given no current layouts can even show 30 to begin with (therefore the animation takes place entirely off-screen).
+          if (chatMessages.children.length >= 30) {
+              chatMessages.children[0].classList.remove("chat-message-visible");
+          }
+
+          // Need to wait just a moment for the initial collapsed height element to be drawn, before it can be animated from that state.  20ms is way overkill but still unnoticeable.
+          setTimeout(() => newMessage.classList.add("chat-message-visible"), 20);
         }
 
         //next steps
