@@ -17,6 +17,7 @@ import querystring from "qs"
 import { spawn } from "child_process"
 //Include line reading module
 import fs from "fs"
+import crypto from "crypto"
 //const { getFileCache } = require("./FileCacheService");
 
 // Ensure data directory exists
@@ -1410,9 +1411,9 @@ setInterval(() => {
         //blow up somebody
         setTimeout(() => {
             //coin flip for the winnter
-            const coinFlip = Math.random();
+            const coinFlip = crypto.randomInt(0, 2);
             //player 1 wins
-            if (coinFlip >= 0.5) {
+            if (coinFlip === 1) {
                 postMessage(botID, `@${dueler1.dueler} obliterated @${dueler2.dueler} with amazing use of their ${dueler1.weapon}`);
                 serverBoop(`${dueler2.duelerID}`, 60 * 5, `Killed by ${dueler1.dueler}'s ${dueler1.weapon}`)
             }
@@ -1881,6 +1882,11 @@ async function messageHandler(tags) {
         console.log(weapon)
         if (!weapon) {
             weapon = 'fists';
+        }
+
+        if (Duelers.length > 20) {
+            postMessage(botID, `@${channel} the duel queue is currently full! Please wait a moment and try again.`);
+            return;
         }
 
         if (Duelers.length > 0 && Duelers[Duelers.length - 1].dueler === dueler) {
