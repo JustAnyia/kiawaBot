@@ -157,7 +157,7 @@ async function startAuth() {
     //await open(authUrl);
     // switch (process.platform) {
     //     case 'win32':
-    //         await spawn('cmd', ['/c', 'start', '""', authUrl])
+    //         await spawn('cmd', ['/c', 'start', '""', `"${authUrl}"`])
     //         break;
     //     case 'linux':
     //         await spawn('xdg-open', [authUrl])
@@ -1842,7 +1842,7 @@ async function messageHandler(tags) {
 
             new_Goal = Number(new_Goal);
             console.log(new_Goal)
-            if (Number.isInteger(new_Goal)) {
+            if (Number.isFinite(new_Goal)) {
                 incentiveData.update('incentive.goal', new_Goal);
                 incentiveData.update('incentive.command', new_Identifier);
                 console.log('Incentive Goal Updated from $' + incentiveGoal + ' to $' + new_Goal)
@@ -1898,7 +1898,7 @@ async function messageHandler(tags) {
             }
 
             new_Amount = Number(new_Amount) + Number(incentiveAmount);
-            if (typeof new_Amount === 'number') {
+            if (Number.isFinite(new_Amount)) {
                 incentiveData.update('incentive.amount', new_Amount);
                 console.log('Incentive Amount Updated from $' + incentiveData.read('incentive.amount').toFixed(2) + ' to $' + new_Amount.toFixed(2))
                 postMessage(botID, 'Incentive Amount Updated from $' + incentiveAmount.toFixed(2) + ' to $' + new_Amount.toFixed(2));
