@@ -1498,6 +1498,7 @@ async function messageHandler(tags) {
             const messageBadges = [];
             var ismod=false;
             var isvip=false;
+            var isbroadcaster=false;
             if (tags.badges) {
                 for (const {set_id, id} of tags.badges) {
                     //parse out the badges that are part of this message
@@ -1511,6 +1512,7 @@ async function messageHandler(tags) {
 
                     if(set_id==='broadcaster'){
                         ismod=true;
+                        isbroadcaster=true;
                     }
                     if(set_id==='vip'){
                         isvip=true;
@@ -1760,6 +1762,21 @@ async function messageHandler(tags) {
             }
             else {
                 postMessage(botID, `Quote couldn't be added... check the bot logs. kiawaSad`);
+            }
+        }
+    }
+    
+    if (command === "!removequote") {
+        if (isbroadcaster === true) {
+            if (args.length === 2 && /^\d+$/.test(args[1])) {
+                const removedQuote = quoteData.remove(args[1]);
+                if (removedQuote) {
+                    postMessage(botID, `Removed Quote #${removedQuote.Index}: ${removedQuote.Quote_Text}`);
+                } else {
+                    postMessage(botID, `Could not find Quote #${args[1]} to remove.`);
+                }
+            } else {
+                postMessage(botID, `Usage: !removequote <number>`);
             }
         }
     }
