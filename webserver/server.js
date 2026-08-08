@@ -34,12 +34,16 @@ function safeReadJSON(filePath, defaultValue = {}) {
     }
 }
 
-// Add CORS middleware for web endpoints
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    next();
-});
+// Helper function to escape HTML to prevent XSS
+function escapeHtml(unsafe) {
+    if (typeof unsafe !== 'string') return unsafe;
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
 
 // Web endpoint to serve streaks data
 app.get("/api/streaks", (req, res) => {
@@ -108,7 +112,7 @@ app.get("/streaks", (req, res) => {
                 <a href="/api/incentives">Incentives API</a>
             </div>
             <h2>Streaks Data</h2>
-            <pre>${JSON.stringify(streaksData, null, 2)}</pre>
+            <pre>${escapeHtml(JSON.stringify(streaksData, null, 2))}</pre>
         </body>
         </html>`;
         res.send(html);
@@ -149,7 +153,7 @@ app.get("/quotes", (req, res) => {
                 <a href="/api/incentives">Incentives API</a>
             </div>
             <h2>Quotes Data</h2>
-            <pre>${JSON.stringify(quotesData, null, 2)}</pre>
+            <pre>${escapeHtml(JSON.stringify(quotesData, null, 2))}</pre>
         </body>
         </html>`;
         res.send(html);
@@ -190,7 +194,7 @@ app.get("/commands", (req, res) => {
                 <a href="/api/incentives">Incentives API</a>
             </div>
             <h2>Commands Data</h2>
-            <pre>${JSON.stringify(commandsData, null, 2)}</pre>
+            <pre>${escapeHtml(JSON.stringify(commandsData, null, 2))}</pre>
         </body>
         </html>`;
         res.send(html);
@@ -232,7 +236,7 @@ app.get("/incentives", (req, res) => {
                 <a href="/api/incentives">Incentives API</a>
             </div>
             <h2>Incentive Data</h2>
-            <pre>${incentiveData.incentive.command} $${incentiveData.incentive.amount.toFixed(2)} / $${incentiveData.incentive.goal.toFixed(0)}</pre>
+            <pre>${escapeHtml(incentiveData.incentive.command)} $${incentiveData.incentive.amount.toFixed(2)} / $${incentiveData.incentive.goal.toFixed(0)}</pre>
         </body>
         </html>`;
         res.send(html);
