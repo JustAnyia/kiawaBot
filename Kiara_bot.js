@@ -1536,7 +1536,7 @@ setInterval(() => {
 
 /**
  * @param { string } message
- * @returns { string | undefined } single word/token starting with !
+ * @returns {{ command:  string, args: string[]} | {command: undefined, args: []}}
  */
 function parseCommand(message) {
     try {
@@ -1549,13 +1549,13 @@ function parseCommand(message) {
         
         // gotta start with exclamation and not be JUST an exclamation
         if (command.startsWith("!") && command.length > 1) {
-            return command;
+            return {command, args};
         }
     }
     catch (error) {
         console.error(`Could not parse command from ${typeof message} "${message}"`, error);
     }
-    return undefined;
+    return {command: undefined, args: []};
 }
 
 //message handler
@@ -1611,7 +1611,7 @@ async function messageHandler(tags) {
     // Ignore echoed messages.
     if (channel==="kiawa_bot") return;
 
-    const command = parseCommand(message);
+    const {command, args} = parseCommand(message);
     
     // Event mode is for Colo/charity events and such.  Meme commands like quotes and duels are disabled during events.
     if (eventMode && command && !commandsAllowedInEventMode.includes(command)) {
