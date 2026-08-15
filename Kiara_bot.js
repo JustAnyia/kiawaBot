@@ -1495,9 +1495,10 @@ function postCommand(command) {
         }
 
         //Search the existing command file and see if the command exists
+        const expectedTag = (command || "").toString().replace(/^!/, "");
         var command_Info = command_List.find(
             (search) => {
-                return search.Tag === command;
+                return search.Tag === expectedTag;
             }
         );
         //format all the bullshit and spit it out in the chat
@@ -1551,7 +1552,7 @@ function parseCommand(message) {
             return command;
         }
     }
-    catch (e) {
+    catch (error) {
         console.error(`Could not parse command from ${typeof message} "${message}"`, error);
     }
     return undefined;
@@ -1610,7 +1611,7 @@ async function messageHandler(tags) {
     // Ignore echoed messages.
     if (channel==="kiawa_bot") return;
 
-    let command = parseCommand(message);
+    const command = parseCommand(message);
     
     // Event mode is for Colo/charity events and such.  Meme commands like quotes and duels are disabled during events.
     if (eventMode && command && !commandsAllowedInEventMode.includes(command)) {
@@ -2020,10 +2021,7 @@ async function messageHandler(tags) {
     //                               //
     ///////////////////////////////////
 
-    //Check if the message has an "!" in it
-    if (command.charAt(0) === '!') {
-        //remove "!" from the search text
-        command = command.slice(1);
+    if (command) {
         postCommand(command);
     }
 }; //on message top level bracket
